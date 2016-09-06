@@ -4,3 +4,4 @@
 30_stack_overflow.patch
 31_printers_border.patch
 50_add_pkcs11_support.patch
+51_wifi_and_mobile_user_connection.patch

@@ -1,0 +1,288 @@
+Description: Allow unprivileged users to connect to WiFi & mobile networks
+Author: Scibian Packaging Team <packaging@scibian.org>
+
+--- a/configure.ac
++++ b/configure.ac
+@@ -137,7 +137,8 @@
+ PKG_CHECK_MODULES(MEDIA_PANEL, $COMMON_MODULES)
+ PKG_CHECK_MODULES(MOUSE_PANEL, $COMMON_MODULES xi >= 1.2
+                   gnome-settings-daemon >= $GSD_REQUIRED_VERSION x11)
+-PKG_CHECK_MODULES(NETWORK_PANEL, $COMMON_MODULES gmodule-2.0)
++PKG_CHECK_MODULES(NETWORK_PANEL, $COMMON_MODULES gmodule-2.0
++                  polkit-gobject-1 >= $POLKIT_REQUIRED_VERSION)
+ PKG_CHECK_MODULES(NOTIFICATIONS_PANEL, $COMMON_MODULES)
+ PKG_CHECK_MODULES(ONLINE_ACCOUNTS_PANEL, $COMMON_MODULES goa-1.0 goa-backend-1.0 >= $GOA_REQUIRED_VERSION)
+ PKG_CHECK_MODULES(POWER_PANEL, $COMMON_MODULES upower-glib >= 0.99.0
+--- a/panels/network/cc-network-panel.c
++++ b/panels/network/cc-network-panel.c
+@@ -23,6 +23,8 @@
+ #include <glib/gi18n.h>
+ #include <stdlib.h>
+ 
++#include <polkit/polkit.h>
++
+ #include "cc-network-panel.h"
+ #include "cc-network-resources.h"
+ 
+@@ -86,6 +88,9 @@
+         gchar            *arg_device;
+         gchar            *arg_access_point;
+         gboolean          operation_done;
++
++        /* polkit authentication check */
++        gboolean          default_private;
+ };
+ 
+ enum {
+@@ -585,13 +590,13 @@
+                 return TRUE;
+         } else if (g_strcmp0 (nm_object_get_path (NM_OBJECT (device)), priv->arg_device) == 0) {
+                 if (priv->arg_operation == OPERATION_CONNECT_MOBILE) {
+-                        cc_network_panel_connect_to_3g_network (toplevel, priv->client, priv->remote_settings, device);
++                        cc_network_panel_connect_to_3g_network (toplevel, priv->client, priv->remote_settings, device, priv->default_private);
+ 
+                         reset_command_line_args (panel); /* done */
+                         select_tree_iter (panel, iter);
+                         return TRUE;
+                 } else if (priv->arg_operation == OPERATION_CONNECT_8021X) {
+-                        cc_network_panel_connect_to_8021x_network (toplevel, priv->client, priv->remote_settings, device, priv->arg_access_point);
++                        cc_network_panel_connect_to_8021x_network (toplevel, priv->client, priv->remote_settings, device, priv->arg_access_point, priv->default_private);
+                         reset_command_line_args (panel); /* done */
+                         select_tree_iter (panel, iter);
+                         return TRUE;
+@@ -1412,6 +1417,9 @@
+         GtkWidget *widget;
+         GtkWidget *toplevel;
+         GDBusConnection *system_bus;
++        PolkitSubject    *subject;
++        PolkitAuthority  *authority;
++        PolkitAuthorizationResult *result;
+ 
+         panel->priv = NETWORK_PANEL_PRIVATE (panel);
+         g_resources_register (cc_network_get_resource ());
+@@ -1515,4 +1523,32 @@
+         widget = GTK_WIDGET (gtk_builder_get_object (panel->priv->builder,
+                                                      "vbox1"));
+         gtk_container_add (GTK_CONTAINER (panel), widget);
++
++	/* check the polkit authentication */
++	panel->priv->default_private = TRUE;
++	authority = polkit_authority_get_sync (NULL, NULL);
++	subject = polkit_unix_process_new_for_owner (getpid (), 0, -1);
++	result = polkit_authority_check_authorization_sync (authority,
++			                                    subject,
++							    "org.freedesktop.NetworkManager.settings.modify.system",
++							    NULL,
++							    POLKIT_CHECK_AUTHORIZATION_FLAGS_NONE,
++							    NULL,
++							    &error);
++	if (error || !result) {
++		g_warning ("Failed to check polkit authorization! %s",
++				error->message);
++		g_clear_error (&error);
++	} else if (polkit_authorization_result_get_is_authorized (result)) {
++		panel->priv->default_private = FALSE;
++	}
++	g_object_unref (result);
++	g_object_unref (authority);
++	g_object_unref (subject);
++}
++
++gboolean
++cc_network_panel_get_default_private (CcNetworkPanel *panel)
++{
++        return panel->priv->default_private;
+ }
+--- a/panels/network/cc-network-panel.h
++++ b/panels/network/cc-network-panel.h
+@@ -66,6 +66,8 @@
+ 
+ GPtrArray *cc_network_panel_get_devices (CcNetworkPanel *panel);
+ 
++gboolean cc_network_panel_get_default_private (CcNetworkPanel *panel);
++
+ G_END_DECLS
+ 
+ #endif /* _CC_NETWORK_PANEL_H */
+--- a/panels/network/net-device-wifi.c
++++ b/panels/network/net-device-wifi.c
+@@ -701,6 +701,9 @@
+         NMDevice *device;
+         NMSettingWireless *setting_wireless;
+         NMClient *client;
++        CcNetworkPanel *panel;
++        NMConnection *partial = NULL;
++        NMSettingConnection *setting_con;
+ 
+         if (device_wifi->priv->updating_device)
+                 goto out;
+@@ -752,10 +755,21 @@
+         /* create one, as it's missing */
+         g_debug ("no existing connection found for %s, creating", ssid_target);
+ 
++	panel = net_object_get_panel (NET_OBJECT (device_wifi));
++	if (cc_network_panel_get_default_private (panel)) {
++		partial = nm_connection_new ();
++		setting_con = (NMSettingConnection *)nm_setting_connection_new ();
++		nm_connection_add_setting (partial, NM_SETTING (setting_con));
++		nm_setting_connection_add_permission (setting_con,
++						      "user",
++						      g_get_user_name(),
++						      NULL);
++	}
++
+         if (!is_8021x (device, ap_object_path)) {
+                 g_debug ("no existing connection found for %s, creating and activating one", ssid_target);
+                 nm_client_add_and_activate_connection (client,
+-                                                       NULL,
++                                                       partial,
+                                                        device, ap_object_path,
+                                                        connection_add_activate_cb, device_wifi);
+         } else {
+@@ -996,6 +1010,7 @@
+         NMClient *client;
+         const char *mode;
+         NMDeviceWifiCapabilities caps;
++        CcNetworkPanel *panel;
+ 
+         device = net_device_get_nm_device (NET_DEVICE (device_wifi));
+         g_assert (nm_device_get_device_type (device) == NM_DEVICE_TYPE_WIFI);
+@@ -1032,6 +1047,14 @@
+                       "id", "Hotspot",
+                       "autoconnect", FALSE,
+                       NULL);
++
++        panel = net_object_get_panel (NET_OBJECT (device_wifi));
++        if (cc_network_panel_get_default_private (panel))
++                nm_setting_connection_add_permission (sc,
++                                                      "user",
++                                                      g_get_user_name(),
++                                                      NULL);
++
+         nm_connection_add_setting (c, (NMSetting *)sc);
+ 
+         sw = (NMSettingWireless *)nm_setting_wireless_new ();
+--- a/panels/network/network-dialogs.c
++++ b/panels/network/network-dialogs.c
+@@ -41,6 +41,7 @@
+         NMClient *client;
+         NMRemoteSettings *settings;
+         NMDevice *device;
++        gboolean default_private;
+ } MobileDialogClosure;
+ 
+ static void
+@@ -262,7 +263,8 @@
+                                            NMClient         *client,
+                                            NMRemoteSettings *settings,
+                                            NMDevice         *device,
+-                                           const gchar      *arg_access_point)
++                                           const gchar      *arg_access_point,
++                                           gboolean          default_private)
+ {
+ 	NMConnection *connection;
+ 	NMSettingConnection *s_con;
+@@ -300,6 +302,8 @@
+         uuid = nm_utils_uuid_generate ();
+         g_object_set (s_con, NM_SETTING_CONNECTION_UUID, uuid, NULL);
+         g_free (uuid);
++        if (default_private)
++                nm_setting_connection_add_permission (s_con, "user", g_get_user_name(), NULL);
+         nm_connection_add_setting (connection, NM_SETTING (s_con));
+ 
+         s_wifi = (NMSettingWireless *) nm_setting_wireless_new ();
+@@ -357,6 +361,7 @@
+ 	if (!canceled && method) {
+ 		NMSetting *setting;
+ 		char *uuid, *id;
++                MobileDialogClosure *closure = user_data;
+ 
+ 		if (method->devtype != NM_DEVICE_MODEM_CAPABILITY_CDMA_EVDO) {
+ 			g_warning ("Unexpected device type (not CDMA).");
+@@ -400,6 +405,11 @@
+ 		              NULL);
+ 		g_free (uuid);
+ 		g_free (id);
++		if (closure->default_private)
++			nm_setting_connection_add_permission ((NMSettingConnection *)setting,
++			                                      "user",
++                                                              g_get_user_name(),
++			                                      NULL);
+ 		nm_connection_add_setting (connection, setting);
+ 	}
+ 
+@@ -419,6 +429,7 @@
+ 	if (!canceled && method) {
+ 		NMSetting *setting;
+ 		char *uuid, *id;
++                MobileDialogClosure *closure = user_data;
+ 
+ 		if (method->devtype != NM_DEVICE_MODEM_CAPABILITY_GSM_UMTS) {
+ 			g_warning ("Unexpected device type (not GSM).");
+@@ -463,6 +474,11 @@
+ 		              NULL);
+ 		g_free (uuid);
+ 		g_free (id);
++		if (closure->default_private)
++			nm_setting_connection_add_permission ((NMSettingConnection *)setting,
++			                                      "user",
++                                                              g_get_user_name(),
++			                                      NULL);
+ 		nm_connection_add_setting (connection, setting);
+ 	}
+ 
+@@ -494,7 +510,8 @@
+ cc_network_panel_connect_to_3g_network (GtkWidget        *toplevel,
+                                         NMClient         *client,
+                                         NMRemoteSettings *settings,
+-                                        NMDevice         *device)
++                                        NMDevice         *device,
++                                        gboolean          default_private)
+ {
+         MobileDialogClosure *closure;
+         NMAMobileWizard *wizard;
+@@ -512,6 +529,7 @@
+         closure->client = g_object_ref (client);
+         closure->settings = g_object_ref (settings);
+         closure->device = g_object_ref (device);
++        closure->default_private = default_private;
+ 
+ 	caps = nm_device_modem_get_current_capabilities (NM_DEVICE_MODEM (device));
+ 	if (caps & NM_DEVICE_MODEM_CAPABILITY_GSM_UMTS) {
+--- a/panels/network/network-dialogs.h
++++ b/panels/network/network-dialogs.h
+@@ -38,11 +38,13 @@
+                                                 NMClient         *client,
+                                                 NMRemoteSettings *settings,
+                                                 NMDevice         *device,
+-                                                const gchar      *arg_access_point);
++                                                const gchar      *arg_access_point,
++                                                gboolean          default_private);
+ 
+ void cc_network_panel_connect_to_3g_network (GtkWidget        *toplevel,
+                                              NMClient         *client,
+                                              NMRemoteSettings *settings,
+-                                             NMDevice         *device);
++                                             NMDevice         *device,
++                                             gboolean          default_private);
+ 
+ #endif /* _NETWORK_DIALOGS_H */
+--- a/panels/network/net-device-mobile.c
++++ b/panels/network/net-device-mobile.c
+@@ -141,12 +141,15 @@
+                             COLUMN_ID, &object_path,
+                             -1);
+         if (g_strcmp0 (object_path, NULL) == 0) {
++                gboolean default_private;
+                 panel = net_object_get_panel (NET_OBJECT (device_mobile));
+                 toplevel = cc_shell_get_toplevel (cc_panel_get_shell (CC_PANEL (panel)));
++                default_private = cc_network_panel_get_default_private (panel);
+                 cc_network_panel_connect_to_3g_network (toplevel,
+                                                         client,
+                                                         remote_settings,
+-                                                        device);
++                                                        device,
++                                                        default_private);
+                 goto out;
+         }
+ 
