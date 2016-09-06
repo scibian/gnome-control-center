@@ -1,0 +1,168 @@
+Description: Add PKCS #11 support
+Author: Scibian Packaging Team <packaging@scibian.org>
+
+diff -x debian -ruN gnome-control-center-3.14.2/panels/network/wireless-security/eap-method-tls.c gnome-control-center-3.14.2.patched/panels/network/wireless-security/eap-method-tls.c
+--- gnome-control-center-3.14.2/panels/network/wireless-security/eap-method-tls.c	2015-05-12 16:04:53.022039499 +0200
++++ gnome-control-center-3.14.2.patched/panels/network/wireless-security/eap-method-tls.c	2015-05-12 16:14:17.790744274 +0200
+@@ -406,6 +406,57 @@
+ 	}
+ }
+ 
++static void
++pkcs11_fill_connection (EAPMethod *parent, NMConnection *connection)
++{
++	NMSetting8021x *s_8021x;
++	GtkWidget *widget;
++
++	g_warning ("pkcs11_fill_connection called");
++	s_8021x = nm_connection_get_setting_802_1x (connection);
++	g_assert (s_8021x);
++
++	widget = GTK_WIDGET (gtk_builder_get_object (parent->builder, "eap_tls_pin_entry"));
++	g_assert (widget);
++	g_object_set (s_8021x, NM_SETTING_802_1X_PIN, gtk_entry_get_text (GTK_ENTRY (widget)), NULL);
++
++	g_object_set (s_8021x, NM_SETTING_802_1X_PIN_FLAGS, NM_SETTING_SECRET_FLAG_AGENT_OWNED, NULL);
++}
++
++static gboolean
++pkcs11_validate (EAPMethod *parent)
++{
++	GtkWidget *widget;
++	const char *pin;
++
++	g_warning ("pkcs11_validate called");
++	widget = GTK_WIDGET (gtk_builder_get_object (parent->builder, "eap_tls_pin_entry"));
++	g_assert (widget);
++	pin = gtk_entry_get_text (GTK_ENTRY (widget));
++	g_warning ("pkcs11_validate pin=%s", pin);
++	if (!pin || !strlen (pin))
++		return FALSE;
++
++	return TRUE;
++}
++
++static void
++pkcs11_add_to_size_group (EAPMethod *parent, GtkSizeGroup *group)
++{
++	GtkWidget *widget;
++
++	g_warning ("pkcs11_add_to_size_group called");
++	widget = GTK_WIDGET (gtk_builder_get_object (parent->builder, "eap_tls_pin_label"));
++	g_assert (widget);
++	gtk_size_group_add_widget (group, widget);
++}
++
++static void
++pkcs11_update_secrets (EAPMethod *parent, NMConnection *connection)
++{
++	g_warning ("pkcs11_update_secrets called");
++}
++
+ EAPMethodTLS *
+ eap_method_tls_new (WirelessSecurity *ws_parent,
+                     NMConnection *connection,
+@@ -417,6 +468,32 @@
+ 	GtkWidget *widget;
+ 	NMSetting8021x *s_8021x = NULL;
+ 
++	if (connection)
++		s_8021x = nm_connection_get_setting_802_1x (connection);
++   
++	/* PKCS11 specific pin dialog */ 
++	if(nm_setting_802_1x_get_engine(s_8021x))
++	{
++		parent = eap_method_init (sizeof (EAPMethodTLS),
++								  pkcs11_validate, // validate
++								  pkcs11_add_to_size_group, // add to group
++								  pkcs11_fill_connection, // fill_connection
++								  pkcs11_update_secrets, // update_secrets
++								  NULL, // destroy
++								  "/org/gnome/control-center/network/eap-method-tls-pkcs11.ui",
++								  "eap_tls_notebook", // ui widget
++								  "eap_tls_pin_entry", // default field
++								  phase2);
++		widget = GTK_WIDGET (gtk_builder_get_object (parent->builder, "eap_tls_pin_entry"));
++		g_assert (widget);
++		g_signal_connect (G_OBJECT (widget), "changed",
++						  (GCallback) wireless_security_changed_cb,
++						  ws_parent);
++	    method = (EAPMethodTLS *) parent;
++	    method->new_connection = secrets_only ? FALSE : TRUE;
++		return method;
++	}
++
+ 	parent = eap_method_init (sizeof (EAPMethodTLS),
+ 	                          validate,
+ 	                          add_to_size_group,
+@@ -435,9 +512,6 @@
+ 
+ 	eap_method_nag_init (parent, "eap_tls_ca_cert_button", connection);
+ 
+-	if (connection)
+-		s_8021x = nm_connection_get_setting_802_1x (connection);
+-
+ 	widget = GTK_WIDGET (gtk_builder_get_object (parent->builder, "eap_tls_identity_entry"));
+ 	g_assert (widget);
+ 	g_signal_connect (G_OBJECT (widget), "changed",
+diff -x debian -ruN gnome-control-center-3.14.2/panels/network/wireless-security/eap-method-tls-pkcs11.ui gnome-control-center-3.14.2.patched/panels/network/wireless-security/eap-method-tls-pkcs11.ui
+--- gnome-control-center-3.14.2/panels/network/wireless-security/eap-method-tls-pkcs11.ui	1970-01-01 01:00:00.000000000 +0100
++++ gnome-control-center-3.14.2.patched/panels/network/wireless-security/eap-method-tls-pkcs11.ui	2015-05-12 16:08:11.298498849 +0200
+@@ -0,0 +1,46 @@
++<?xml version="1.0"?>
++<interface>
++  <!-- interface-requires gtk+ 2.6 -->
++  <!-- interface-naming-policy toplevel-contextual -->
++      <object class="GtkNotebook" id="eap_tls_notebook">
++        <property name="visible">True</property>
++        <property name="show_tabs">False</property>
++        <property name="show_border">False</property>
++        <child>
++          <object class="GtkTable" id="table8">
++            <property name="visible">True</property>
++            <property name="n_rows">1</property>
++            <property name="n_columns">2</property>
++            <property name="column_spacing">12</property>
++            <property name="row_spacing">6</property>
++            <child>
++              <object class="GtkLabel" id="eap_tls_pin_label">
++                <property name="visible">True</property>
++                <property name="xalign">0</property>
++                <property name="label" translatable="yes">Code PIN</property>
++                <property name="use_underline">True</property>
++                <property name="mnemonic_widget">eap_tls_pin_entry</property>
++              </object>
++              <packing>
++                <property name="x_options">GTK_FILL</property>
++                <property name="y_options"/>
++              </packing>
++            </child>
++            <child>
++              <object class="GtkEntry" id="eap_tls_pin_entry">
++                <property name="visible">True</property>
++                <property name="can_focus">True</property>
++                <property name="activates_default">True</property>
++                <property name="visibility">False</property>
++                <property name="invisible_char">●</property>
++              </object>
++              <packing>
++                <property name="left_attach">1</property>
++                <property name="right_attach">2</property>
++                <property name="y_options"/>
++              </packing>
++            </child>
++          </object>
++        </child>
++      </object>
++</interface>
+diff -x debian -ruN gnome-control-center-3.14.2/panels/network/wireless-security/wireless-security.gresource.xml gnome-control-center-3.14.2.patched/panels/network/wireless-security/wireless-security.gresource.xml
+--- gnome-control-center-3.14.2/panels/network/wireless-security/wireless-security.gresource.xml	2015-05-12 16:04:53.022039499 +0200
++++ gnome-control-center-3.14.2.patched/panels/network/wireless-security/wireless-security.gresource.xml	2015-05-12 16:12:02.687704287 +0200
+@@ -6,6 +6,7 @@
+     <file preprocess="xml-stripblanks">eap-method-peap.ui</file>
+     <file preprocess="xml-stripblanks">eap-method-simple.ui</file>
+     <file preprocess="xml-stripblanks">eap-method-tls.ui</file>
++    <file preprocess="xml-stripblanks">eap-method-tls-pkcs11.ui</file>
+     <file preprocess="xml-stripblanks">eap-method-ttls.ui</file>
+     <file preprocess="xml-stripblanks">nag-user-dialog.ui</file>
+     <file preprocess="xml-stripblanks">ws-dynamic-wep.ui</file>

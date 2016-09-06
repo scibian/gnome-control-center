@@ -3,3 +3,4 @@
 07_polkit_wheel_sudo_group.patch
 30_stack_overflow.patch
 31_printers_border.patch
+50_add_pkcs11_support.patch
