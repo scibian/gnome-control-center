@@ -18,13 +18,13 @@ DEB_DH_MAKESHLIBS_ARGS_gnome-control-center = --no-act
 
 common-binary-post-install-arch:: list-missing
 
-pre-build:
+pre-build::
 	cp debian/patches/timezone_8.5.png panels/datetime/data/timezone_8.5.png
 	cp debian/patches/timezone_8.5_dim.png panels/datetime/data/timezone_8.5_dim.png
 	cp debian/patches/timezone_-8.5.png panels/datetime/data/timezone_-8.5.png
 	cp debian/patches/timezone_-8.5_dim.png panels/datetime/data/timezone_-8.5_dim.png
 
-clean:
+clean::
 	rm -f panels/datetime/data/timezone_8.5.png
 	rm -f panels/datetime/data/timezone_8.5_dim.png
 	rm -f panels/datetime/data/timezone_-8.5.png
