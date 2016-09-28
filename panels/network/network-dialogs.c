@@ -41,6 +41,7 @@ typedef struct {
         NMClient *client;
         NMRemoteSettings *settings;
         NMDevice *device;
+        gboolean default_private;
 } MobileDialogClosure;
 
 static void
@@ -262,7 +263,8 @@ cc_network_panel_connect_to_8021x_network (GtkWidget        *toplevel,
                                            NMClient         *client,
                                            NMRemoteSettings *settings,
                                            NMDevice         *device,
-                                           const gchar      *arg_access_point)
+                                           const gchar      *arg_access_point,
+                                           gboolean          default_private)
 {
 	NMConnection *connection;
 	NMSettingConnection *s_con;
@@ -300,6 +302,8 @@ cc_network_panel_connect_to_8021x_network (GtkWidget        *toplevel,
         uuid = nm_utils_uuid_generate ();
         g_object_set (s_con, NM_SETTING_CONNECTION_UUID, uuid, NULL);
         g_free (uuid);
+        if (default_private)
+                nm_setting_connection_add_permission (s_con, "user", g_get_user_name(), NULL);
         nm_connection_add_setting (connection, NM_SETTING (s_con));
 
         s_wifi = (NMSettingWireless *) nm_setting_wireless_new ();
@@ -357,6 +361,7 @@ cdma_mobile_wizard_done (NMAMobileWizard *wizard,
 	if (!canceled && method) {
 		NMSetting *setting;
 		char *uuid, *id;
+                MobileDialogClosure *closure = user_data;
 
 		if (method->devtype != NM_DEVICE_MODEM_CAPABILITY_CDMA_EVDO) {
 			g_warning ("Unexpected device type (not CDMA).");
@@ -400,6 +405,11 @@ cdma_mobile_wizard_done (NMAMobileWizard *wizard,
 		              NULL);
 		g_free (uuid);
 		g_free (id);
+		if (closure->default_private)
+			nm_setting_connection_add_permission ((NMSettingConnection *)setting,
+			                                      "user",
+                                                              g_get_user_name(),
+			                                      NULL);
 		nm_connection_add_setting (connection, setting);
 	}
 
@@ -419,6 +429,7 @@ gsm_mobile_wizard_done (NMAMobileWizard *wizard,
 	if (!canceled && method) {
 		NMSetting *setting;
 		char *uuid, *id;
+                MobileDialogClosure *closure = user_data;
 
 		if (method->devtype != NM_DEVICE_MODEM_CAPABILITY_GSM_UMTS) {
 			g_warning ("Unexpected device type (not GSM).");
@@ -463,6 +474,11 @@ gsm_mobile_wizard_done (NMAMobileWizard *wizard,
 		              NULL);
 		g_free (uuid);
 		g_free (id);
+		if (closure->default_private)
+			nm_setting_connection_add_permission ((NMSettingConnection *)setting,
+			                                      "user",
+                                                              g_get_user_name(),
+			                                      NULL);
 		nm_connection_add_setting (connection, setting);
 	}
 
@@ -494,7 +510,8 @@ void
 cc_network_panel_connect_to_3g_network (GtkWidget        *toplevel,
                                         NMClient         *client,
                                         NMRemoteSettings *settings,
-                                        NMDevice         *device)
+                                        NMDevice         *device,
+                                        gboolean          default_private)
 {
         MobileDialogClosure *closure;
         NMAMobileWizard *wizard;
@@ -512,6 +529,7 @@ cc_network_panel_connect_to_3g_network (GtkWidget        *toplevel,
         closure->client = g_object_ref (client);
         closure->settings = g_object_ref (settings);
         closure->device = g_object_ref (device);
+        closure->default_private = default_private;
 
 	caps = nm_device_modem_get_current_capabilities (NM_DEVICE_MODEM (device));
 	if (caps & NM_DEVICE_MODEM_CAPABILITY_GSM_UMTS) {

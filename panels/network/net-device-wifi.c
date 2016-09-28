@@ -701,6 +701,9 @@ wireless_try_to_connect (NetDeviceWifi *device_wifi,
         NMDevice *device;
         NMSettingWireless *setting_wireless;
         NMClient *client;
+        CcNetworkPanel *panel;
+        NMConnection *partial = NULL;
+        NMSettingConnection *setting_con;
 
         if (device_wifi->priv->updating_device)
                 goto out;
@@ -752,10 +755,21 @@ wireless_try_to_connect (NetDeviceWifi *device_wifi,
         /* create one, as it's missing */
         g_debug ("no existing connection found for %s, creating", ssid_target);
 
+	panel = net_object_get_panel (NET_OBJECT (device_wifi));
+	if (cc_network_panel_get_default_private (panel)) {
+		partial = nm_connection_new ();
+		setting_con = (NMSettingConnection *)nm_setting_connection_new ();
+		nm_connection_add_setting (partial, NM_SETTING (setting_con));
+		nm_setting_connection_add_permission (setting_con,
+						      "user",
+						      g_get_user_name(),
+						      NULL);
+	}
+
         if (!is_8021x (device, ap_object_path)) {
                 g_debug ("no existing connection found for %s, creating and activating one", ssid_target);
                 nm_client_add_and_activate_connection (client,
-                                                       NULL,
+                                                       partial,
                                                        device, ap_object_path,
                                                        connection_add_activate_cb, device_wifi);
         } else {
@@ -996,6 +1010,7 @@ start_shared_connection (NetDeviceWifi *device_wifi)
         NMClient *client;
         const char *mode;
         NMDeviceWifiCapabilities caps;
+        CcNetworkPanel *panel;
 
         device = net_device_get_nm_device (NET_DEVICE (device_wifi));
         g_assert (nm_device_get_device_type (device) == NM_DEVICE_TYPE_WIFI);
@@ -1032,6 +1047,14 @@ start_shared_connection (NetDeviceWifi *device_wifi)
                       "id", "Hotspot",
                       "autoconnect", FALSE,
                       NULL);
+
+        panel = net_object_get_panel (NET_OBJECT (device_wifi));
+        if (cc_network_panel_get_default_private (panel))
+                nm_setting_connection_add_permission (sc,
+                                                      "user",
+                                                      g_get_user_name(),
+                                                      NULL);
+
         nm_connection_add_setting (c, (NMSetting *)sc);
 
         sw = (NMSettingWireless *)nm_setting_wireless_new ();

@@ -406,6 +406,57 @@ update_secrets (EAPMethod *parent, NMConnection *connection)
 	}
 }
 
+static void
+pkcs11_fill_connection (EAPMethod *parent, NMConnection *connection)
+{
+	NMSetting8021x *s_8021x;
+	GtkWidget *widget;
+
+	g_warning ("pkcs11_fill_connection called");
+	s_8021x = nm_connection_get_setting_802_1x (connection);
+	g_assert (s_8021x);
+
+	widget = GTK_WIDGET (gtk_builder_get_object (parent->builder, "eap_tls_pin_entry"));
+	g_assert (widget);
+	g_object_set (s_8021x, NM_SETTING_802_1X_PIN, gtk_entry_get_text (GTK_ENTRY (widget)), NULL);
+
+	g_object_set (s_8021x, NM_SETTING_802_1X_PIN_FLAGS, NM_SETTING_SECRET_FLAG_AGENT_OWNED, NULL);
+}
+
+static gboolean
+pkcs11_validate (EAPMethod *parent)
+{
+	GtkWidget *widget;
+	const char *pin;
+
+	g_warning ("pkcs11_validate called");
+	widget = GTK_WIDGET (gtk_builder_get_object (parent->builder, "eap_tls_pin_entry"));
+	g_assert (widget);
+	pin = gtk_entry_get_text (GTK_ENTRY (widget));
+	g_warning ("pkcs11_validate pin=%s", pin);
+	if (!pin || !strlen (pin))
+		return FALSE;
+
+	return TRUE;
+}
+
+static void
+pkcs11_add_to_size_group (EAPMethod *parent, GtkSizeGroup *group)
+{
+	GtkWidget *widget;
+
+	g_warning ("pkcs11_add_to_size_group called");
+	widget = GTK_WIDGET (gtk_builder_get_object (parent->builder, "eap_tls_pin_label"));
+	g_assert (widget);
+	gtk_size_group_add_widget (group, widget);
+}
+
+static void
+pkcs11_update_secrets (EAPMethod *parent, NMConnection *connection)
+{
+	g_warning ("pkcs11_update_secrets called");
+}
+
 EAPMethodTLS *
 eap_method_tls_new (WirelessSecurity *ws_parent,
                     NMConnection *connection,
@@ -416,6 +467,32 @@ eap_method_tls_new (WirelessSecurity *ws_parent,
 	EAPMethod *parent;
 	GtkWidget *widget;
 	NMSetting8021x *s_8021x = NULL;
+
+	if (connection)
+		s_8021x = nm_connection_get_setting_802_1x (connection);
+   
+	/* PKCS11 specific pin dialog */ 
+	if(nm_setting_802_1x_get_engine(s_8021x))
+	{
+		parent = eap_method_init (sizeof (EAPMethodTLS),
+								  pkcs11_validate, // validate
+								  pkcs11_add_to_size_group, // add to group
+								  pkcs11_fill_connection, // fill_connection
+								  pkcs11_update_secrets, // update_secrets
+								  NULL, // destroy
+								  "/org/gnome/control-center/network/eap-method-tls-pkcs11.ui",
+								  "eap_tls_notebook", // ui widget
+								  "eap_tls_pin_entry", // default field
+								  phase2);
+		widget = GTK_WIDGET (gtk_builder_get_object (parent->builder, "eap_tls_pin_entry"));
+		g_assert (widget);
+		g_signal_connect (G_OBJECT (widget), "changed",
+						  (GCallback) wireless_security_changed_cb,
+						  ws_parent);
+	    method = (EAPMethodTLS *) parent;
+	    method->new_connection = secrets_only ? FALSE : TRUE;
+		return method;
+	}
 
 	parent = eap_method_init (sizeof (EAPMethodTLS),
 	                          validate,
@@ -434,9 +511,6 @@ eap_method_tls_new (WirelessSecurity *ws_parent,
 	method->new_connection = secrets_only ? FALSE : TRUE;
 
 	eap_method_nag_init (parent, "eap_tls_ca_cert_button", connection);
-
-	if (connection)
-		s_8021x = nm_connection_get_setting_802_1x (connection);
 
 	widget = GTK_WIDGET (gtk_builder_get_object (parent->builder, "eap_tls_identity_entry"));
 	g_assert (widget);

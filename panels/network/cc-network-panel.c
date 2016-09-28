@@ -23,6 +23,8 @@
 #include <glib/gi18n.h>
 #include <stdlib.h>
 
+#include <polkit/polkit.h>
+
 #include "cc-network-panel.h"
 #include "cc-network-resources.h"
 
@@ -86,6 +88,9 @@ struct _CcNetworkPanelPrivate
         gchar            *arg_device;
         gchar            *arg_access_point;
         gboolean          operation_done;
+
+        /* polkit authentication check */
+        gboolean          default_private;
 };
 
 enum {
@@ -585,13 +590,13 @@ handle_argv_for_device (CcNetworkPanel *panel,
                 return TRUE;
         } else if (g_strcmp0 (nm_object_get_path (NM_OBJECT (device)), priv->arg_device) == 0) {
                 if (priv->arg_operation == OPERATION_CONNECT_MOBILE) {
-                        cc_network_panel_connect_to_3g_network (toplevel, priv->client, priv->remote_settings, device);
+                        cc_network_panel_connect_to_3g_network (toplevel, priv->client, priv->remote_settings, device, priv->default_private);
 
                         reset_command_line_args (panel); /* done */
                         select_tree_iter (panel, iter);
                         return TRUE;
                 } else if (priv->arg_operation == OPERATION_CONNECT_8021X) {
-                        cc_network_panel_connect_to_8021x_network (toplevel, priv->client, priv->remote_settings, device, priv->arg_access_point);
+                        cc_network_panel_connect_to_8021x_network (toplevel, priv->client, priv->remote_settings, device, priv->arg_access_point, priv->default_private);
                         reset_command_line_args (panel); /* done */
                         select_tree_iter (panel, iter);
                         return TRUE;
@@ -1412,6 +1417,9 @@ cc_network_panel_init (CcNetworkPanel *panel)
         GtkWidget *widget;
         GtkWidget *toplevel;
         GDBusConnection *system_bus;
+        PolkitSubject    *subject;
+        PolkitAuthority  *authority;
+        PolkitAuthorizationResult *result;
 
         panel->priv = NETWORK_PANEL_PRIVATE (panel);
         g_resources_register (cc_network_get_resource ());
@@ -1515,4 +1523,32 @@ cc_network_panel_init (CcNetworkPanel *panel)
         widget = GTK_WIDGET (gtk_builder_get_object (panel->priv->builder,
                                                      "vbox1"));
         gtk_container_add (GTK_CONTAINER (panel), widget);
+
+	/* check the polkit authentication */
+	panel->priv->default_private = TRUE;
+	authority = polkit_authority_get_sync (NULL, NULL);
+	subject = polkit_unix_process_new_for_owner (getpid (), 0, -1);
+	result = polkit_authority_check_authorization_sync (authority,
+			                                    subject,
+							    "org.freedesktop.NetworkManager.settings.modify.system",
+							    NULL,
+							    POLKIT_CHECK_AUTHORIZATION_FLAGS_NONE,
+							    NULL,
+							    &error);
+	if (error || !result) {
+		g_warning ("Failed to check polkit authorization! %s",
+				error->message);
+		g_clear_error (&error);
+	} else if (polkit_authorization_result_get_is_authorized (result)) {
+		panel->priv->default_private = FALSE;
+	}
+	g_object_unref (result);
+	g_object_unref (authority);
+	g_object_unref (subject);
+}
+
+gboolean
+cc_network_panel_get_default_private (CcNetworkPanel *panel)
+{
+        return panel->priv->default_private;
 }

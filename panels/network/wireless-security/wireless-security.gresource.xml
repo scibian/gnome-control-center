@@ -6,6 +6,7 @@
     <file preprocess="xml-stripblanks">eap-method-peap.ui</file>
     <file preprocess="xml-stripblanks">eap-method-simple.ui</file>
     <file preprocess="xml-stripblanks">eap-method-tls.ui</file>
+    <file preprocess="xml-stripblanks">eap-method-tls-pkcs11.ui</file>
     <file preprocess="xml-stripblanks">eap-method-ttls.ui</file>
     <file preprocess="xml-stripblanks">nag-user-dialog.ui</file>
     <file preprocess="xml-stripblanks">ws-dynamic-wep.ui</file>

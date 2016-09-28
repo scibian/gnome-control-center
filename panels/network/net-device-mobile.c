@@ -141,12 +141,15 @@ mobile_connection_changed_cb (GtkComboBox *combo_box, NetDeviceMobile *device_mo
                             COLUMN_ID, &object_path,
                             -1);
         if (g_strcmp0 (object_path, NULL) == 0) {
+                gboolean default_private;
                 panel = net_object_get_panel (NET_OBJECT (device_mobile));
                 toplevel = cc_shell_get_toplevel (cc_panel_get_shell (CC_PANEL (panel)));
+                default_private = cc_network_panel_get_default_private (panel);
                 cc_network_panel_connect_to_3g_network (toplevel,
                                                         client,
                                                         remote_settings,
-                                                        device);
+                                                        device,
+                                                        default_private);
                 goto out;
         }
 

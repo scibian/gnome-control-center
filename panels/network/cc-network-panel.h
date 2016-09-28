@@ -66,6 +66,8 @@ GType cc_network_panel_get_type (void) G_GNUC_CONST;
 
 GPtrArray *cc_network_panel_get_devices (CcNetworkPanel *panel);
 
+gboolean cc_network_panel_get_default_private (CcNetworkPanel *panel);
+
 G_END_DECLS
 
 #endif /* _CC_NETWORK_PANEL_H */

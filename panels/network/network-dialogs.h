@@ -38,11 +38,13 @@ void cc_network_panel_connect_to_8021x_network (GtkWidget        *toplevel,
                                                 NMClient         *client,
                                                 NMRemoteSettings *settings,
                                                 NMDevice         *device,
-                                                const gchar      *arg_access_point);
+                                                const gchar      *arg_access_point,
+                                                gboolean          default_private);
 
 void cc_network_panel_connect_to_3g_network (GtkWidget        *toplevel,
                                              NMClient         *client,
                                              NMRemoteSettings *settings,
-                                             NMDevice         *device);
+                                             NMDevice         *device,
+                                             gboolean          default_private);
 
 #endif /* _NETWORK_DIALOGS_H */
