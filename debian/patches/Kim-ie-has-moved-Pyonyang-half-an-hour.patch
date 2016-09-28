@@ -1,0 +1,22 @@
+Description: Kim'ie has moved Pyonyang half an hour
+Author: Anders Ladegaard Marchsteiner <anders.marchsteiner@kghcustoms.com>
+Origin: upstream
+---
+ panels/datetime/Makefile.am                |   4 ++++
+ 1 files changed, 4 insertions(+)
+
+Index: gnome-control-center/panels/datetime/datetime.gresource.xml
+===================================================================
+--- gnome-control-center.orig/panels/datetime/datetime.gresource.xml
++++ gnome-control-center/panels/datetime/datetime.gresource.xml
+@@ -76,6 +76,10 @@
+     <file alias="timezone_-8_dim.png">data/timezone_-8_dim.png</file>
+     <file alias="timezone_8.png">data/timezone_8.png</file>
+     <file alias="timezone_8_dim.png">data/timezone_8_dim.png</file>
++    <file alias="timezone_-8.5.png">data/timezone_-8.5.png</file>
++    <file alias="timezone_-8.5_dim.png">data/timezone_-8.5_dim.png</file>
++    <file alias="timezone_8.5.png">data/timezone_8.5.png</file>
++    <file alias="timezone_8.5_dim.png">data/timezone_8.5_dim.png</file>
+     <file alias="timezone_8.75.png">data/timezone_8.75.png</file>
+     <file alias="timezone_8.75_dim.png">data/timezone_8.75_dim.png</file>
+     <file alias="timezone_-9.png">data/timezone_-9.png</file>
